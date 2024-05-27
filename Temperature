@@ -1,0 +1,96 @@
+# Load necessary libraries
+library(tidyr)
+library(dplyr)
+library(fda)
+library(fda.usc)
+library(fds)
+library(e1071)
+library(caret)
+library(readxl)
+
+# Load the data
+data_base <- read.csv("C:\\Users\\jzd767\\OneDrive - University of Copenhagen\\Heba Basha\\Courses\\FDA and ML of Complex Data\\project\\city_temperature.csv")
+climateZones <- read_excel("C:\\Users\\jzd767\\OneDrive - University of Copenhagen\\Heba Basha\\Courses\\FDA and ML of Complex Data\\project\\Koppen Climate Classification.xlsx")
+climateZones <- climateZones[climateZones$Country != "Iceland", ] # Remove Iceland
+# Data cleanup
+data <- data_base
+data$Month <- month.abb[data$Month]
+data$date <- paste(data$Month, data$Day, sep = "/")
+data <- data[data$AvgTemperature != -99, ] # Remove missing values
+data <- data[data$Day != 0, ] # Remove invalid days
+data <- data[data$date != "Feb/29", ] # Remove February 29
+data <- data[data$Year > 1994, ] # Remove outlier years
+
+## I think we need to drop the country "Burundi" because it is missing 12 days 
+data <- data[data$Country != "Burundi", ] # Remove Burundi
+data <- data[data$Country != "Iceland", ] # Remove Iceland
+# Convert temperatures to Celsius
+data$AvgTemperature <- (data$AvgTemperature - 32) * 5/9
+
+# Calculate mean daily temperature over the country over the years ########################## Here I removed the year to get only 365 days per country
+data_with_mean <- data %>%
+  group_by(Country, Region, Month, Day, date) %>%
+  summarize(Temperature = mean(AvgTemperature, na.rm = TRUE), .groups = 'drop')
+# to sort the data based on date
+data_with_mean$date_sort <- as.Date(data_with_mean$date, format="%b/%d")
+data_with_mean <- data_with_mean[order(data_with_mean$date_sort), ]
+######
+data_long <- data_with_mean[, !names(data_with_mean) %in% c("AvgTemperature","AvgTemperature_C","City", "State", "Day","Year","Month","date_sort")]
+
+
+# Spread the data to wide format
+data_wide <- data_long %>%
+  pivot_wider(names_from = date, values_from = Temperature)
+
+
+######
+data_wide <- cbind(climateZones$`Climate zone`, data_wide)
+names(data_wide)[1] <- "ClimateZones"
+
+# Convert data to matrix and ensure numeric type
+temp_matrix <- as.matrix(data_wide[,-c(1, 2 , 3)])
+##################################################################################
+
+# Create the fdata object
+temp_fdata <- fdata(temp_matrix, argvals = 1:365, rangeval=c(1,365), list(main = "Temperature Data", xlab = "Day", ylab = "Temperature"))
+rownames(temp_matrix) <- data_wide$Country
+plot(temp_fdata,labels= TRUE)
+
+# Create functional data object
+nbasis <- 4
+basis <- create.fourier.basis(c(1, 365), nbasis = nbasis)
+
+# Smooth the data to create functional data object
+temp_fd <- smooth.basis(1:365, t(temp_matrix), basis)$fd
+plot(temp_fd)
+
+
+# Classification using SVM (example with a placeholder response variable)
+set.seed(123)
+
+####### we need to use the climate zones as the response for the classification 
+##### we need to use the functions for the fda + ML 
+#you will find this in the fda package and the fda.usc
+
+response = temp_fd$fdnames$reps
+
+svm_model <- svm(temp_fd$coefs, as.factor(response), kernel = "linear")
+
+# Evaluate the model using cross-validation
+train_control <- trainControl(method = "cv", number = 10)
+svm_cv <- train(temp_fd$coefs, as.factor(response), method = "svmLinear", trControl = train_control)
+
+# Additional machine learning methods for comparison
+# Random Forest
+rf_model <- train(temp_fd$coefs, as.factor(response), method = "rf", trControl = train_control)
+
+# K-Nearest Neighbors
+knn_model <- train(temp_fd$coefs, as.factor(response), method = "knn", trControl = train_control)
+
+# Compare models
+results <- resamples(list(SVM = svm_cv, RF = rf_model, KNN = knn_model))
+summary(results)
+bwplot(results)
+
+
+
