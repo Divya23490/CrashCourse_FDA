@@ -3,61 +3,271 @@ library(tidyr)
 library(dplyr)
 library(fda)
 library(fda.usc)
-library(readxl)
+library(fds)
 library(e1071)
 library(caret)
+library(readxl)
 
-# Load the temperature data
+# Load the data
 data_base <- read.csv("/Users/divyakhurana/Downloads/city_temperature.csv")
+climateZones <- read_excel("/Users/divyakhurana/Desktop/fda_crashcourse/Koppen Climate Classification.xlsx")
+climateZones <- climateZones[climateZones$Country != "Iceland", ] # Remove Iceland
 
-# Load the Koppen Climate Classification data
-climateZones <- read_excel("/Users/divyakhurana/Desktop/fda_crashcourse/Koppen Climate Classification.xlsx", 
-                           col_types = c("text", "text", "text", "text"))  # Adjust as needed
+#if we want to remove the countries that are in the Southern Hemisphere
 
-# Select only Country and ClimateZone from climate data
-climateZones <- climateZones %>% 
-  select(Country = 1, Main = 2)  # Adjust these names according to actual Excel columns
+southern_hemisphere_countries <- 
+  c("Argentina", "Australia", "Bolivia", "Brazil", "Ecuador", "Madagascar",
+    "Malawi", "Mozambique", "Namibia", "New Zealand", "Peru","South Africa",
+    "Tanzania", "Uruguay", "Zambia")
 
-# Data cleanup for temperature data
-data <- data_base %>%
-  mutate(Month = month.abb[Month],  # Convert month numbers to abbreviations
-         date = paste(Month, Day, sep = "/")) %>%
-  filter(AvgTemperature != -99, Day != 0, date != "Feb/29", Year > 1994) %>%
-  select(-Year)  # Remove Year if it's not used for further analysis
+climateZones <- climateZones[!climateZones$Country %in% southern_hemisphere_countries, ]
+
+# Data cleanup
+data <- data_base
+data$Month <- month.abb[data$Month]
+data$date <- paste(data$Month, data$Day, sep = "/")
+data <- data[data$AvgTemperature != -99, ] # Remove missing values
+data <- data[data$Day != 0, ] # Remove invalid days
+data <- data[data$date != "Feb/29", ] # Remove February 29
+data <- data[data$Year > 1994, ] # Remove outlier years
+data <- data[!data$Country %in% southern_hemisphere_countries, ]
+
+
+## I think we need to drop the country "Burundi" because it is missing 12 days 
+data <- data[data$Country != "Burundi", ] # Remove Burundi
+data <- data[data$Country != "Iceland", ] # Remove Iceland since it is alone in polar group
 
 # Convert temperatures to Celsius
-data <- data %>%
-  mutate(AvgTemperature = (AvgTemperature - 32) * 5/9)
+data$AvgTemperature <- (data$AvgTemperature - 32) * 5/9
 
-# Calculate mean daily temperature by Country and date
+# Calculate mean daily temperature over the country over the years 
 data_with_mean <- data %>%
-  group_by(Country, date) %>%
+  group_by(Country, Region, Month, Day, date) %>%
   summarize(Temperature = mean(AvgTemperature, na.rm = TRUE), .groups = 'drop')
 
-# Spread the data to wide format with dates as columns
-data_wide <- data_with_mean %>%
+# to sort the data based on date
+data_with_mean$date_sort <- as.Date(data_with_mean$date, format="%b/%d")
+data_with_mean <- data_with_mean[order(data_with_mean$date_sort), ]
+######
+data_long <- data_with_mean[, !names(data_with_mean) %in% c("AvgTemperature","AvgTemperature_C","City", "State", "Day","Year","Month","date_sort")]
+
+
+# Spread the data to wide format
+data_wide <- data_long %>%
   pivot_wider(names_from = date, values_from = Temperature)
 
-# Join ClimateZone data
-data_wide <- data_wide %>%
-  left_join(climateZones, by = "Country")  # Ensure the key column 'Country' matches in both data frames
+
+######
+data_wide <- cbind(climateZones$`Climate zone`, data_wide)
+names(data_wide)[1] <- "ClimateZones"
 
 # Convert data to matrix and ensure numeric type
-temp_matrix <- as.matrix(data_wide[,-c(1,367)])
-
+temp_matrix <- as.matrix(data_wide[,-c(1, 2 , 3)])
+rownames(temp_matrix) <- data_wide$Country
 ##################################################################################
+days = 1:365
 
 # Create the fdata object
-temp_fdata <- fdata(temp_matrix, argvals = 1:365, rangeval=c(1,365), list(main = "Temperature Data", xlab = "Day", ylab = "Temperature"))
-rownames(temp_matrix) <- data_wide$Country
+temp_fdata <- fdata(temp_matrix, argvals = days, rangeval=range(days), list(main = "Temperature Data", xlab = "Day", ylab = "Temperature"))
 plot(temp_fdata,labels= TRUE)
 
 # Create functional data object
-nbasis <- 4
+nbasis <- 8
 basis <- create.fourier.basis(c(1, 365), nbasis = nbasis)
 
 # Smooth the data to create functional data object
-temp_fd <- smooth.basis(1:365, t(temp_matrix), basis)$fd
+temp_fd <- smooth.basis(days, t(temp_matrix), basis)$fd
 plot(temp_fd)
 
+temp_fd$ClimateZone = data_wide$ClimateZones
 
+#######################################################################################
+# from here we start the analysis.
+# First Method:
+#########
+# Functional Principle Component #
+# Calculate the mean curve
+temp_eval <- eval.fd(days, temp_fd)
+meanCurve <- apply(temp_eval, 1, mean)
+# plotting the data + the mean curve
+plot(days, meanCurve, type = "l", lwd=5,ylim=c(-30, 45),
+     main = "Mean Temperature Curve", xlab = "Days", ylab = "Mean Temperature")
+for(i in 1:109) {
+  lines(days, eval.fd(days, temp_fd[i,]), col=i)
+}
+
+# calculating the deviations from the mean and the centered data
+dev= eval.fd(days, temp_fd) - meanCurve
+
+centeredFd <- smooth.basis(days, dev, basis)
+# plotting the deviation from the mean 
+plot(days, rep(0, length(days)), type='n', ylim=c(-30, 45),
+     xlab="Days", ylab="Temperature", main="Deviations from the mean")
+for(i in 1:109) {
+  lines(days, matrix(dev[, i], nrow = 365, ncol = 1), col= i)
+}
+abline(h=0, lwd = 3,lty=2)
+
+# Perform Functional Principal Component Analysis
+
+nharm <- 6  # Number of harmonics to compute
+fpcaRes <- pca.fd(centeredFd$fd, nharm)
+
+# Extract the harmonics (eigenfunctions)
+eigenfunction_fd_list <- fpcaRes$harmonics
+
+# Plot each eigenfunction in a separate frame
+for(i in 1:6) {
+  # Construct the functional data object for each principal component using its coefficients
+  eigen_fd  <- fd(eigenfunction_fd_list$coefs[, i], basis)
+  
+  
+  # Plot the eigenfunction
+  plot(eigen_fd[i], xlab="Day of the Year", ylab=sprintf("PC%d", i), xlim=c(0, 365), ylim=c(-0.1, 0.1), lwd=2)
+  lines(eigen_fd, col=2, lwd=2, main=plot_title)
+  # add this arguments to the plot function becasue it caused and error (main=sprintf("Eigenfunction %d (%.3f%% of variance)", i), type='l',)
+  # Add a horizontal dotted line at y=0, in black
+  abline(h=0, lty=2)  # Horizontal line, 'lty=2' for dotted
+}
+
+# print the first four eigenvalues and the proportion of variance explained
+print(fpcaRes$values[1:6])
+
+
+#print the proportion of variance explained by the first four eigenfunctions
+print(fpcaRes$varprop[1:6])
+
+############################################
+#Second Method
+# Support Vector Machine classification
+
+# Ensure the response variable for climate zones is correctly factorized
+
+response <- factor(data_wide$ClimateZones)
+
+# Create a data list as required by the classification functions
+data_list <- list("df" = data.frame(response), "temp_fd" = temp_fd)
+
+# SVM Classification using functional data
+svm_model <- classif.svm(formula = response ~ temp_fd, data = data_list, fdataobj = temp_fd, type = "C-classification", kernel = "linear")
+summary(svm_model)
+
+
+############################
+# Third Method 
+# Random Forest Classification
+rf_model <- classif.randomForest(formula = response ~ temp_fd, data = data_list, fdataobj = temp_fd)
+summary(rf_model)
+
+##########################
+# Forth Method 
+#### Linear Regression 
+##### FANOVA model
+
+FANOVA <- fRegress(temp_fd ~ response, temp_fd)
+plot(FANOVA$betaestlist$const) # the constant for the continental
+plot(FANOVA$betaestlist$response.Dry)
+plot(FANOVA$betaestlist$response.Temperate)
+plot(FANOVA$betaestlist$response.Tropical)
+
+# estimated mean of the four regions:
+Continental_mean = eval.fd(evalarg = days,fdobj=FANOVA$betaestlist$const$fd)
+Dry_mean = Continental_mean + eval.fd(evalarg = days,fdobj=FANOVA$betaestlist$response.Dry$fd)
+Temperate_mean = Continental_mean + eval.fd(evalarg = days,fdobj=FANOVA$betaestlist$response.Temperate$fd)
+Tropical_mean = Continental_mean + eval.fd(evalarg = days,fdobj=FANOVA$betaestlist$response.Tropical$fd)
+
+response_means = rbind(t(Continental_mean),t(Dry_mean),t(Temperate_mean),t(Tropical_mean))
+temp_eval = eval.fd(days,temp_fd)
+regions = response
+
+matplot((temp_eval),col=factor(regions),type='l',lty=1,lwd=0.5)
+matlines(t(response_means),type='l',lwd=2,lty=1)
+
+##########################
+# Fifth Method
+
+
+
+
+
+
+
+
+
+####### The following is for you Divya ######################
+#### I didn't do anything here
+
+# K-Nearest Neighbors Classification
+knn_result <- classif.knn(fdataobj = temp_fdata, group = response, kmax = 15)
+summary(knn_result)
+
+# Extract the optimal number of neighbors and the classification results
+knn_optimal_k <- which.max(knn_result$prob.classification)
+knn_accuracy <- knn_result$prob.classification[knn_optimal_k]
+cat("Optimal number of neighbors:", knn_optimal_k, "\n")
+cat("Highest probability of correct classification:", knn_accuracy, "\n")
+
+# Cross-validation and model comparison using caret
+train_control <- trainControl(method = "cv", number = 10)
+
+# For caret, we need to use the coefficient matrix
+svm_cv <- train(x = as.data.frame(t(temp_fd$coefs)), y = response, method = "svmLinear", trControl = train_control)
+rf_cv <- train(x = as.data.frame(t(temp_fd$coefs)), y = response, method = "rf", trControl = train_control)
+knn_cv <- train(x = as.data.frame(t(temp_fd$coefs)), y = response, method = "knn", trControl = train_control)
+
+# Collecting results for comparison
+results <- resamples(list(SVM = svm_cv, RF = rf_cv, KNN = knn_cv))
+
+# Summarize the results
+summary(results)
+
+# Visualization of model performance
+bwplot(results)
+
+
+# Artificial Neural Network (ANN) classification using functional data
+
+ann_model <- classif.nnet(response ~ temp_fd, data = data_list, size = 5, rang = 0.1, decay = 5e-4, maxit = 200)
+summary(ann_model)
+
+# Evaluate the ANN model
+predicted <- predict(ann_model, newdata = data_list$temp_fd)
+conf_matrix <- table(Predicted = predicted, Actual = response)
+print(conf_matrix)
+
+# Check dimensions
+print(dim(temp_fd$coefs))
+print(length(response))
+
+# Align the dimensions of the predictors and response
+n_samples <- ncol(temp_fd$coefs)
+response <- response[1:n_samples]
+
+# Ensure the number of rows in temp_fd$coefs matches the length of response
+if (length(response) != n_samples) {
+  stop("Number of rows in predictors does not match the length of the response variable")
+}
+
+# Prepare data for caret
+predictors <- as.data.frame(t(temp_fd$coefs))
+
+# Cross-validation and model comparison using caret
+train_control <- trainControl(method = "cv", number = 10)
+
+# SVM Cross-validation using caret
+svm_cv <- train(x = predictors, y = response, method = "svmLinear", trControl = train_control)
+
+# Random Forest Cross-validation using caret
+rf_cv <- train(x = predictors, y = response, method = "rf", trControl = train_control)
+
+# ANN Cross-validation using caret
+ann_cv <- train(x = predictors, y = response, method = "nnet", trControl = train_control, linout = FALSE, trace = FALSE)
+
+# Collecting results for comparison
+results <- resamples(list(SVM = svm_cv, RF = rf_cv, ANN = ann_cv))
+
+# Summarize the results
+summary(results)
+
+# Visualization of model performance
+bwplot(results)
