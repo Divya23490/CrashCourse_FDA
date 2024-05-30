@@ -219,12 +219,6 @@ summary(rf_model)
 knn_result <- classif.knn(fdataobj = temp_fdata, group = response, kmax = 15)
 summary(knn_result)
 
-# Extract the optimal number of neighbors and the classification results
-knn_optimal_k <- which.max(knn_result$prob.classification)
-knn_accuracy <- knn_result$prob.classification[knn_optimal_k]
-cat("Optimal number of neighbors:", knn_optimal_k, "\n")
-cat("Highest probability of correct classification:", knn_accuracy, "\n")
-
 # Cross-validation and model comparison using caret
 train_control <- trainControl(method = "cv", number = 10)
 
