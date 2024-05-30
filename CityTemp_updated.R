@@ -212,12 +212,18 @@ summary(rf_model)
 ##########################
 # Fifth Method
 
-####### The following is for you Divya ######################
-#### I didn't do anything here
-
 # K-Nearest Neighbors Classification
 knn_result <- classif.knn(fdataobj = temp_fdata, group = response, kmax = 15)
 summary(knn_result)
+
+################################
+# Sixth Method
+# Artificial Neural Network (ANN) classification using functional data
+
+ann_model <- classif.nnet(response ~ temp_fd, data = data_list, size = 5, rang = 0.1, decay = 5e-4, maxit = 200)
+summary(ann_model)
+
+#######################
 
 # Cross-validation and model comparison using caret
 train_control <- trainControl(method = "cv", number = 10)
@@ -236,16 +242,7 @@ summary(results)
 # Visualization of model performance
 bwplot(results)
 
-
-# Artificial Neural Network (ANN) classification using functional data
-
-ann_model <- classif.nnet(response ~ temp_fd, data = data_list, size = 5, rang = 0.1, decay = 5e-4, maxit = 200)
-summary(ann_model)
-
-# Evaluate the ANN model
-predicted <- predict(ann_model, newdata = data_list$temp_fd)
-conf_matrix <- table(Predicted = predicted, Actual = response)
-print(conf_matrix)
+############################
 
 # Check dimensions
 print(dim(temp_fd$coefs))
