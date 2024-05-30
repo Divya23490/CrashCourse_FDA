@@ -80,6 +80,33 @@ temp_fd <- smooth.basis(days, t(temp_matrix), basis)$fd
 plot(temp_fd)
 
 temp_fd$ClimateZone = data_wide$ClimateZones
+#### plotting unsmoothed vs smoothed data
+
+par(mfrow = c(1, 2), oma = c(0, 0, 2, 0)) 
+# plotting the unsmoothed data 
+
+# Define a set of colors
+climate_colors <- c("Continental" = "red", "Dry" = "blue", "Temperate" = "green", "Tropical" = "orange")
+
+# Create a vector of colors for each country based on its climate zone
+country_colors <- climate_colors[data_wide$ClimateZones]
+
+# Plot the temperature curves using matplot
+matplot(days, t(temp_matrix), type = "l", col = country_colors, lty = 1, lwd = 1,
+        main = "Unsmoothed",
+        xlab = "Day", ylab = "Temperature (°C)")
+
+legend("bottom", legend = names(climate_colors), col = climate_colors, lty = 1, lwd = 2, cex = 0.8)
+# plotting smoothed data
+
+temp_fd_eval <- eval.fd(days, temp_fd)
+matplot(days, temp_fd_eval, type = "l", col = country_colors, lty = 1, lwd = 1,
+        main = "Smoothed",
+        xlab = "Day", ylab = "Temperature (°C)")
+legend("bottom", legend = names(climate_colors), col = climate_colors, lty = 1, lwd = 2, cex = 0.8)
+mtext("Temperature Data: Unsmoothed and Smoothed", outer = TRUE, cex = 1.5)
+
+par(mfrow = c(1, 1))
 
 #######################################################################################
 # from here we start the analysis.
@@ -117,6 +144,7 @@ fpcaRes <- pca.fd(centeredFd$fd, nharm)
 eigenfunction_fd_list <- fpcaRes$harmonics
 
 # Plot each eigenfunction in a separate frame
+par(mfrow = c(2, 3))
 for(i in 1:6) {
   # Construct the functional data object for each principal component using its coefficients
   eigen_fd  <- fd(eigenfunction_fd_list$coefs[, i], basis)
@@ -129,46 +157,32 @@ for(i in 1:6) {
   # Add a horizontal dotted line at y=0, in black
   abline(h=0, lty=2)  # Horizontal line, 'lty=2' for dotted
 }
-
+par(mfrow = c(1, 1))
 # print the first four eigenvalues and the proportion of variance explained
 print(fpcaRes$values[1:6])
-
 
 #print the proportion of variance explained by the first four eigenfunctions
 print(fpcaRes$varprop[1:6])
 
 ############################################
-#Second Method
-# Support Vector Machine classification
-
 # Ensure the response variable for climate zones is correctly factorized
 
 response <- factor(data_wide$ClimateZones)
 
 # Create a data list as required by the classification functions
 data_list <- list("df" = data.frame(response), "temp_fd" = temp_fd)
-
-# SVM Classification using functional data
-svm_model <- classif.svm(formula = response ~ temp_fd, data = data_list, fdataobj = temp_fd, type = "C-classification", kernel = "linear")
-summary(svm_model)
-
-
-############################
-# Third Method 
-# Random Forest Classification
-rf_model <- classif.randomForest(formula = response ~ temp_fd, data = data_list, fdataobj = temp_fd)
-summary(rf_model)
-
-##########################
-# Forth Method 
+############################################
+#### Second Method
 #### Linear Regression 
 ##### FANOVA model
 
 FANOVA <- fRegress(temp_fd ~ response, temp_fd)
-plot(FANOVA$betaestlist$const) # the constant for the continental
-plot(FANOVA$betaestlist$response.Dry)
-plot(FANOVA$betaestlist$response.Temperate)
-plot(FANOVA$betaestlist$response.Tropical)
+par(mfrow = c(2, 2))
+plot(FANOVA$betaestlist$const, xlab = "Day", ylab = "Temperature (°C)",main = "Continental",lwd = 3 ) # the constant for the continental
+plot(FANOVA$betaestlist$response.Dry, xlab = "Day", ylab = "Temperature (°C)",main = "Dry" ,lwd = 3 )
+plot(FANOVA$betaestlist$response.Temperate, xlab = "Day", ylab = "Temperature (°C)",main = "Temperate" ,lwd = 3 )
+plot(FANOVA$betaestlist$response.Tropical, xlab = "Day", ylab = "Temperature (°C)",main = "Tropical" ,lwd = 3 )
+par(mfrow = c(1, 1))
 
 # estimated mean of the four regions:
 Continental_mean = eval.fd(evalarg = days,fdobj=FANOVA$betaestlist$const$fd)
@@ -182,17 +196,21 @@ regions = response
 
 matplot((temp_eval),col=factor(regions),type='l',lty=1,lwd=0.5)
 matlines(t(response_means),type='l',lwd=2,lty=1)
+############################
+# Third Method 
+# Support Vector Machine classification
+
+# SVM Classification using functional data
+svm_model <- classif.svm(formula = response ~ temp_fd, data = data_list, fdataobj = temp_fd, type = "C-classification", kernel = "linear")
+summary(svm_model)
 
 ##########################
+# Forth Method 
+# Random Forest Classification
+rf_model <- classif.randomForest(formula = response ~ temp_fd, data = data_list, fdataobj = temp_fd)
+summary(rf_model)
+##########################
 # Fifth Method
-
-
-
-
-
-
-
-
 
 ####### The following is for you Divya ######################
 #### I didn't do anything here
