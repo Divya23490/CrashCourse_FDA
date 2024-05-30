@@ -201,25 +201,28 @@ matlines(t(response_means),type='l',lwd=2,lty=1)
 # Support Vector Machine classification
 
 # SVM Classification using functional data
+set.seed(123)
 svm_model <- classif.svm(formula = response ~ temp_fd, data = data_list, fdataobj = temp_fd, type = "C-classification", kernel = "linear")
 summary(svm_model)
 
 ##########################
 # Forth Method 
 # Random Forest Classification
+set.seed(123)
 rf_model <- classif.randomForest(formula = response ~ temp_fd, data = data_list, fdataobj = temp_fd)
 summary(rf_model)
 ##########################
 # Fifth Method
 
 # K-Nearest Neighbors Classification
+set.seed(123)
 knn_result <- classif.knn(fdataobj = temp_fdata, group = response, kmax = 15)
 summary(knn_result)
 
 ################################
 # Sixth Method
 # Artificial Neural Network (ANN) classification using functional data
-
+set.seed(123)
 ann_model <- classif.nnet(response ~ temp_fd, data = data_list, size = 5, rang = 0.1, decay = 5e-4, maxit = 200)
 summary(ann_model)
 
