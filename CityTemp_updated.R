@@ -226,42 +226,17 @@ summary(ann_model)
 #######################
 
 # Cross-validation and model comparison using caret
-train_control <- trainControl(method = "cv", number = 10)
-
-# For caret, we need to use the coefficient matrix
-svm_cv <- train(x = as.data.frame(t(temp_fd$coefs)), y = response, method = "svmLinear", trControl = train_control)
-rf_cv <- train(x = as.data.frame(t(temp_fd$coefs)), y = response, method = "rf", trControl = train_control)
-knn_cv <- train(x = as.data.frame(t(temp_fd$coefs)), y = response, method = "knn", trControl = train_control)
-
-# Collecting results for comparison
-results <- resamples(list(SVM = svm_cv, RF = rf_cv, KNN = knn_cv))
-
-# Summarize the results
-summary(results)
-
-# Visualization of model performance
-bwplot(results)
-
-############################
-
-# Check dimensions
-print(dim(temp_fd$coefs))
-print(length(response))
-
-# Align the dimensions of the predictors and response
-n_samples <- ncol(temp_fd$coefs)
-response <- response[1:n_samples]
-
-# Ensure the number of rows in temp_fd$coefs matches the length of response
-if (length(response) != n_samples) {
-  stop("Number of rows in predictors does not match the length of the response variable")
-}
-
+set.seed(123)
 # Prepare data for caret
 predictors <- as.data.frame(t(temp_fd$coefs))
 
 # Cross-validation and model comparison using caret
 train_control <- trainControl(method = "cv", number = 10)
+# KNN Cross-validation using caret
+knn_cv <- train(x = predictors, y = response, method = "knn", trControl = train_control)
+
+# ANN Cross-validation using caret
+ann_cv <- train(x = predictors, y = response, method = "nnet", trControl = train_control, linout = FALSE, trace = FALSE)
 
 # SVM Cross-validation using caret
 svm_cv <- train(x = predictors, y = response, method = "svmLinear", trControl = train_control)
@@ -269,11 +244,9 @@ svm_cv <- train(x = predictors, y = response, method = "svmLinear", trControl = 
 # Random Forest Cross-validation using caret
 rf_cv <- train(x = predictors, y = response, method = "rf", trControl = train_control)
 
-# ANN Cross-validation using caret
-ann_cv <- train(x = predictors, y = response, method = "nnet", trControl = train_control, linout = FALSE, trace = FALSE)
 
 # Collecting results for comparison
-results <- resamples(list(SVM = svm_cv, RF = rf_cv, ANN = ann_cv))
+results <- resamples(list( KNN = knn_cv, RF = rf_cv, SVM = svm_cv,ANN = ann_cv))
 
 # Summarize the results
 summary(results)
